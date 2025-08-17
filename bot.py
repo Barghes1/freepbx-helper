@@ -137,7 +137,6 @@ class FreePBX:
         out.sort(key=lambda x: int(re.sub(r"\D", "", x[0]) or 0))
         return out
 
-      
     def fetch_ext_index(self):
         queries = [
             """
@@ -261,7 +260,6 @@ class FreePBX:
         }
         self.gql(m, vars)
 
-        
     def set_ext_password(self, extension: str, secret: str) -> None:
         m_id = """
         mutation($extId: ID!, $name: String!, $pwd: String!) {
@@ -290,6 +288,32 @@ class FreePBX:
                 self.gql(m_str, vars_str)
             except Exception as e2:
                 raise RuntimeError(f"updateExtension failed: ID! -> {e1}; String! -> {e2}")
+
+    # === НОВОЕ: Apply Config (перезагрузка конфигурации через веб-интерфейс) ===
+    def apply_config(self) -> dict:
+        gql_mutation = """
+        mutation {
+            doreload(input: {}) {
+            status
+            message
+            transaction_id
+            }
+        }
+        """
+        try:
+            data = self.gql(gql_mutation)
+            return data.get("doreload") or {"status": True, "message": "doreload ok"}
+        except Exception as e1:
+            url = f"{self.base_url}/admin/ajax.php"
+            try:
+                r = requests.get(url, params={"command": "reload"}, timeout=25, verify=self.verify)
+                r.raise_for_status()
+                try:
+                    return {"status": True, "message": str(r.json())[:400]}
+                except ValueError:
+                    return {"status": True, "message": r.text[:400]}
+            except Exception as e2:
+                raise RuntimeError(f"Apply Config failed: GraphQL doreload -> {e1}; ajax reload -> {e2}")
 
 # ===== Helpers =====
 def equip_start(eq: int) -> int:
@@ -406,41 +430,63 @@ async def add_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
     name_tail = " ".join(c.args[1:]).strip()
     try:
         await u.message.chat.send_action(ChatAction.TYPING)
+
+        targets = parse_targets(arg0) if "-" in arg0 else [arg0]
+        total = len(targets)
+        notice = await u.message.reply_text(f"⏳ Добавляю линии… (0/{total})")
+
         by_ext, name_set, name_ok = fb.fetch_ext_index()
         existing_exts = set(by_ext.keys())
 
         created, skipped_ext, skipped_name = [], [], []
         name_check_warn = False
 
-        targets = parse_targets(arg0) if "-" in arg0 else [arg0]
+        processed = 0
         for raw in targets:
             ext = str(int(raw))
-            if ext in existing_exts:
-                skipped_ext.append(ext); continue
-
             cand_name = (f"{name_tail} {ext}" if "-" in arg0 else name_tail) if name_tail else ext
-            if name_ok and cand_name.strip().lower() in name_set:
-                skipped_name.append(f"{ext} ({cand_name})"); continue
-            if not name_ok:
-                name_check_warn = True
 
-            fb.create_one(int(ext), cand_name)
-            secret = secrets.token_hex(16)
-            fb.set_ext_password(ext, secret)
+            if ext in existing_exts:
+                skipped_ext.append(ext)
+            elif name_ok and cand_name.strip().lower() in name_set:
+                skipped_name.append(f"{ext} ({cand_name})")
+            else:
+                if not name_ok:
+                    name_check_warn = True
+                fb.create_one(int(ext), cand_name)
+                secret = secrets.token_hex(16)
+                fb.set_ext_password(ext, secret)
+                created.append(ext)
+                existing_exts.add(ext)
+                if name_ok and cand_name.strip():
+                    name_set.add(cand_name.strip().lower())
 
-            created.append(ext)
-            existing_exts.add(ext)
-            if name_ok and cand_name.strip():
-                name_set.add(cand_name.strip().lower())
+            processed += 1
+            if processed % 5 == 0 or processed == total:
+                try: await notice.edit_text(f"⏳ Добавляю линии… ({processed}/{total})")
+                except Exception: pass
             await asyncio.sleep(0)
 
         parts = []
         if created:     parts.append("✅ Создано: " + ", ".join(created))
         if skipped_ext: parts.append("↩️ Уже существуют EXT: " + ", ".join(skipped_ext))
         if skipped_name:parts.append("🔁 Дубли имён: " + ", ".join(skipped_name))
+        if name_check_warn: parts.append("ℹ️ Имя проверить не удалось (сервер не отдаёт имена).")
         if not parts:   parts.append("Нечего делать.")
         await u.message.reply_text("\n".join(parts))
 
+        # === НОВОЕ: применяем конфиг, если реально что-то создали ===
+        if created:
+            try:
+                try: await notice.edit_text("🔄 Применяю конфиг (Apply Config)…")
+                except Exception: pass
+                fb.apply_config()
+                try: await notice.edit_text("✅ Конфиг применён. Обновляю список…")
+                except Exception: pass
+            except Exception as e:
+                await u.message.reply_text(f"⚠️ Apply Config не удалось: <code>{escape(str(e))}</code>")
+
+        # Обновление списка
         pairs = fb.fetch_all_extensions()
         c.user_data["__last_pairs"] = pairs
         page_items, page, pages = _slice_pairs(pairs, page=0)
@@ -536,16 +582,38 @@ async def list_nav_cb(u: Update, c: ContextTypes.DEFAULT_TYPE):
         await q.answer("Ошибка")
 
 async def create_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
+    # Подробная подсказка при пустых аргументах
     if len(c.args) < 2:
-        await u.message.reply_text("Формат: /create <оборудование> <кол-во>\nНапример: /create 4 10")
+        await u.message.reply_text(
+            "❗ Формат команды:\n"
+            "<code>/create &lt;оборудование&gt; &lt;кол-во&gt;</code>\n\n"
+            "Где <b>оборудование</b> — номер базы (старт EXT):\n"
+            "• 1 → 101…\n"
+            "• 2 → 201…\n"
+            "• 3 → 301…\n" 
+            "• 4 → 401…\n"
+            "• 10 → 1001…\n\n"
+            "Пример:\n"
+            "<code>/create 4 10</code> — создаст 10 линий, начиная с 401.\n",
+        )
         return
     if not await _ensure_connected(u):
         return
 
-    eq = int(c.args[0]); cnt = int(c.args[1])
+    try:
+        eq = int(c.args[0])
+        cnt = int(c.args[1])
+    except Exception:
+        await u.message.reply_text(
+            "❗ Некорректные аргументы.\n"
+            "Используй: <code>/create &lt;оборудование&gt; &lt;кол-во&gt;</code>\n"
+            "Например: <code>/create 4 10</code>"
+        )
+        return
+
     fb = fb_from_session(u.effective_chat.id)
     try:
-        notice = await u.message.reply_text(f"⏳ Создаю {cnt} линий…")
+        notice = await u.message.reply_text(f"⏳ Создаю {cnt} линий… (0/{cnt})")
         await u.message.chat.send_action(ChatAction.TYPING)
 
         all_pairs = fb.fetch_all_extensions()
@@ -562,8 +630,18 @@ async def create_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
                 except Exception: pass
             await asyncio.sleep(0)
 
+        # === НОВОЕ: Apply Config один раз по завершении ===
+        if targets:
+            try:
+                try: await notice.edit_text("🔄 Применяю конфиг (Apply Config)…")
+                except Exception: pass
+                fb.apply_config()
+                try: await notice.edit_text("✅ Конфиг применён. Обновляю список…")
+                except Exception: pass
+            except Exception as e:
+                await u.message.reply_text(f"⚠️ Apply Config не удалось: <code>{escape(str(e))}</code>")
+
         pairs = fb.fetch_all_extensions()
-        await notice.edit_text("✅ Готово. Обновляю список…")
         pairs_page, page, pages = _slice_pairs(pairs, page=0)
         c.user_data["__last_pairs"] = pairs
         await u.message.reply_text(_list_page_text(fb.base_url, pairs_page), reply_markup=_list_nav_kb(page, pages))
@@ -587,12 +665,18 @@ async def del_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
         targets = [x for x in requested if x in existing]
         missing = [x for x in requested if x not in existing]
 
+        total = len(targets)
+        notice = await u.message.reply_text(f"⏳ Удаляю линии… (0/{total})") if total else None
+
         ok, failed = [], []
-        for ext in targets:
+        for i, ext in enumerate(targets, 1):
             try:
                 fb.delete_extension(ext); ok.append(ext)
             except Exception:
                 failed.append(ext)
+            if notice and (i % 10 == 0 or i == total):
+                try: await notice.edit_text(f"⏳ Удаляю линии… ({i}/{total})")
+                except Exception: pass
             await asyncio.sleep(0)
 
         parts = []
@@ -602,6 +686,20 @@ async def del_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
         if not parts: parts.append("Нечего удалять.")
         await u.message.reply_text("\n".join(parts))
 
+        # === НОВОЕ: Apply Config, если реально что-то удалили ===
+        if ok:
+            try:
+                if notice:
+                    try: await notice.edit_text("🔄 Применяю конфиг (Apply Config)…")
+                    except Exception: pass
+                fb.apply_config()
+                if notice:
+                    try: await notice.edit_text("✅ Конфиг применён. Обновляю список…")
+                    except Exception: pass
+            except Exception as e:
+                await u.message.reply_text(f"⚠️ Apply Config не удалось: <code>{escape(str(e))}</code>")
+
+        # Обновление списка
         pairs = fb.fetch_all_extensions()
         c.user_data["__last_pairs"] = pairs
         page_items, page, pages = _slice_pairs(pairs, page=0)
@@ -641,11 +739,38 @@ async def del_all_cb(u: Update, c: ContextTypes.DEFAULT_TYPE):
         await q.edit_message_text("Отменено."); await q.answer("Отмена"); return
     try:
         fb = fb_from_session(u.effective_chat.id)
-        await q.edit_message_text("⏳ Удаляю все линии…")
+        await q.edit_message_text("⏳ Удаляю все линии… (подготовка)")
         pairs = fb.fetch_all_extensions()
+        total = len(pairs)
+        done = 0
         await q.message.chat.send_action(ChatAction.TYPING)
         for ext, _ in pairs:
-            fb.delete_extension(ext); await asyncio.sleep(0)
+            try:
+                fb.delete_extension(ext)
+            except Exception:
+                pass
+            done += 1
+            if done % 25 == 0 or done == total:
+                try:
+                    await q.edit_message_text(f"⏳ Удаляю все линии… ({done}/{total})")
+                except Exception:
+                    pass
+            await asyncio.sleep(0)
+
+        # === НОВОЕ: Apply Config после полного удаления ===
+        if total:
+            try:
+                try: await q.edit_message_text("🔄 Применяю конфиг (Apply Config)…")
+                except Exception: pass
+                fb.apply_config()
+            except Exception as e:
+                try:
+                    await q.edit_message_text(f"Удаление выполнено, но Apply Config не удалось: <code>{escape(str(e))}</code>")
+                except Exception:
+                    pass
+                await q.answer("Ошибка Apply Config")
+                return
+
         await q.edit_message_text(f"{fb.base_url}\n\n(всё удалено)")
         await q.answer("Готово")
     except Exception as e:
@@ -725,7 +850,6 @@ def main():
     app.add_handler(CommandHandler("del_eq", del_eq_cmd))
     app.add_handler(CommandHandler("del_all", del_all_cmd))
     app.add_handler(CommandHandler("add", add_cmd))
-
 
     app.add_handler(CommandHandler("reconnect", reconnect_cmd))
     app.add_handler(CommandHandler("ping", ping_cmd))
