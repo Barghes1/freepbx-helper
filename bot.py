@@ -46,6 +46,10 @@ HELP_TEXT = (
     "  <code>/add &lt;ext&gt; [имя]</code>\n"
     "  <code>/add &lt;start-end&gt; [префикс_имени]</code>\n"
     "  • Проверка дублей по номеру и имени\n\n"
+    
+        "📥 <b>Inbound Routes</b>\n"
+    "  <code>/add_inbound &lt;ext&gt;</code> или <code>/add_inbound &lt;start-end&gt;</code>\n"
+    "  • Создаёт маршрут DID→EXT, Description=simEXT\n\n"
 
 )
 
@@ -314,6 +318,60 @@ class FreePBX:
                     return {"status": True, "message": r.text[:400]}
             except Exception as e2:
                 raise RuntimeError(f"Apply Config failed: GraphQL doreload -> {e1}; ajax reload -> {e2}")
+            
+    def create_inbound_route(self, did: str, description: str, ext: str) -> None:
+
+        did = str(did).strip()
+        description = str(description).strip()
+        ext = str(ext).strip()
+
+        mutations = [
+            # Основной вариант: from-did-direct
+            ("""
+            mutation($did:String!, $desc:String!, $dest:String!) {
+              addInboundRoute(input:{
+                extension: $did,
+                description: $desc,
+                destination: $dest
+              }) {
+                status
+                message
+                inboundRoute { id }
+              }
+            }""", {"did": did, "desc": description, "dest": f"from-did-direct,{ext},1"}),
+
+            # Альтернатива: ext-local (на некоторых системах назначение расширения через ext-local)
+            ("""
+            mutation($did:String!, $desc:String!, $dest:String!) {
+              addInboundRoute(input:{
+                extension: $did,
+                description: $desc,
+                destination: $dest
+              }) {
+                status
+                message
+                inboundRoute { id }
+              }
+            }""", {"did": did, "desc": description, "dest": f"ext-local,{ext},1"}),
+        ]
+
+        last_err = None
+        for m, vars_ in mutations:
+            try:
+                self.gql(m, vars_)
+                return
+            except Exception as e:
+                last_err = e
+                continue
+
+        # Делаем сообщение более понятным, если у инстанса нет самой мутации
+        msg = str(last_err)
+        if "Cannot query field" in msg and "addInboundRoute" in msg:
+            raise RuntimeError(
+                "На этой версии FreePBX отсутствует мутация addInboundRoute. "
+                "Обнови модули framework/core/api до последних версий (edge) и повтори попытку."
+            )
+        raise RuntimeError(f"create_inbound_route failed: {last_err}")
 
 # ===== Helpers =====
 def equip_start(eq: int) -> int:
@@ -757,7 +815,6 @@ async def del_all_cb(u: Update, c: ContextTypes.DEFAULT_TYPE):
                     pass
             await asyncio.sleep(0)
 
-        # === НОВОЕ: Apply Config после полного удаления ===
         if total:
             try:
                 try: await q.edit_message_text("🔄 Применяю конфиг (Apply Config)…")
@@ -818,6 +875,86 @@ async def logout_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
     c.user_data.clear()
     await u.message.reply_text("🚪 Сессия сброшена. Используйте /connect.")
     
+async def add_inbound_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
+    """
+    /add_inbound 414
+    /add_inbound 414-420
+    Для каждого существующего EXT создаём inbound route:
+    Description=sim{ext}, DID={ext}, Destination -> Extension {ext}
+    """
+    if not c.args:
+        await u.message.reply_text(
+            "Форматы:\n"
+            "<code>/add_inbound &lt;ext&gt;</code>\n"
+            "<code>/add_inbound &lt;start-end&gt;</code>\n"
+            "Примеры:\n"
+            "<code>/add_inbound 414</code>\n"
+            "<code>/add_inbound 401-418</code>\n"
+            "Маршрут создаётся только если EXT существует."
+        )
+        return
+
+    if not await _ensure_connected(u):
+        return
+
+    fb = fb_from_session(u.effective_chat.id)
+
+    arg0 = " ".join(c.args)
+    targets = parse_targets(arg0)
+
+    try:
+        await u.message.chat.send_action(ChatAction.TYPING)
+
+        by_ext, _, _ = fb.fetch_ext_index()
+        existing_exts = set(by_ext.keys())
+
+        todo = [x for x in targets if x in existing_exts]
+        missing = [x for x in targets if x not in existing_exts]
+
+        total = len(todo)
+        if total == 0:
+            msg = ["Нечего создавать."]
+            if missing:
+                msg.append("↩️ Пропущено (нет таких EXT): " + ", ".join(missing))
+            await u.message.reply_text("\n".join(msg))
+            return
+
+        notice = await u.message.reply_text(f"⏳ Добавляю Inbound Routes… (0/{total})")
+
+        ok, failed = [], []
+        for i, ext in enumerate(todo, 1):
+            try:
+                fb.create_inbound_route(did=ext, description=f"sim{ext}", ext=ext)
+                ok.append(ext)
+            except Exception as e:
+                failed.append(f"{ext} ({str(e)[:80]})")
+
+            if i % 5 == 0 or i == total:
+                try:
+                    await notice.edit_text(f"⏳ Добавляю Inbound Routes… ({i}/{total})")
+                except Exception:
+                    pass
+            await asyncio.sleep(0)
+
+        parts = []
+        if ok:      parts.append("✅ Создано маршрутов: " + ", ".join(ok))
+        if missing: parts.append("↩️ Пропущено (нет таких EXT): " + ", ".join(missing))
+        if failed:  parts.append("❌ Ошибки: " + ", ".join(failed))
+        await u.message.reply_text("\n".join(parts) if parts else "Нечего делать.")
+
+        if ok:
+            try:
+                try: await notice.edit_text("🔄 Применяю конфиг (Apply Config)…")
+                except Exception: pass
+                fb.apply_config()
+                try: await notice.edit_text("✅ Конфиг применён.")
+                except Exception: pass
+            except Exception as e:
+                await u.message.reply_text(f"⚠️ Apply Config не удалось: <code>{escape(str(e))}</code>")
+
+    except Exception as e:
+        await u.message.reply_text(f"Ошибка /add_inbound: <code>{escape(str(e))}</code>")
+    
 # ===== Lifecycle =====
 async def on_startup(app: Application):
     print("✅ Бот запущен и слушает обновления. Команда помощи: /help")
@@ -850,6 +987,8 @@ def main():
     app.add_handler(CommandHandler("del_eq", del_eq_cmd))
     app.add_handler(CommandHandler("del_all", del_all_cmd))
     app.add_handler(CommandHandler("add", add_cmd))
+    app.add_handler(CommandHandler("add_inbound", add_inbound_cmd))
+
 
     app.add_handler(CommandHandler("reconnect", reconnect_cmd))
     app.add_handler(CommandHandler("ping", ping_cmd))
