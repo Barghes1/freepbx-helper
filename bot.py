@@ -6,6 +6,9 @@ from telegram.constants import ParseMode, ChatAction
 from html import escape
 from urllib.parse import urlparse
 
+from utils.common import clean_url
+
+
 # ==== SETTINGS ====
 TELEGRAM_TOKEN = "8495279314:AAHKzXlhMfj_nojN0f5jTNtU9KGf9rHEU0A"
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
@@ -52,6 +55,9 @@ HELP_TEXT = (
     "  • Создаёт маршрут DID→EXT, Description=simEXT\n\n"
 
 )
+
+class AlreadyExists(Exception):
+    pass
 
 class FreePBX:
     def __init__(self, base_url: str, client_id: str, client_secret: str, verify: bool = True):
@@ -320,58 +326,79 @@ class FreePBX:
                 raise RuntimeError(f"Apply Config failed: GraphQL doreload -> {e1}; ajax reload -> {e2}")
             
     def create_inbound_route(self, did: str, description: str, ext: str) -> None:
-
         did = str(did).strip()
         description = str(description).strip()
         ext = str(ext).strip()
 
-        mutations = [
-            # Основной вариант: from-did-direct
-            ("""
-            mutation($did:String!, $desc:String!, $dest:String!) {
-              addInboundRoute(input:{
-                extension: $did,
-                description: $desc,
-                destination: $dest
-              }) {
-                status
-                message
-                inboundRoute { id }
-              }
-            }""", {"did": did, "desc": description, "dest": f"from-did-direct,{ext},1"}),
-
-            # Альтернатива: ext-local (на некоторых системах назначение расширения через ext-local)
-            ("""
-            mutation($did:String!, $desc:String!, $dest:String!) {
-              addInboundRoute(input:{
-                extension: $did,
-                description: $desc,
-                destination: $dest
-              }) {
-                status
-                message
-                inboundRoute { id }
-              }
-            }""", {"did": did, "desc": description, "dest": f"ext-local,{ext},1"}),
+        candidates = [
+            f"from-did-direct,{ext},1",
+            f"ext-local,{ext},1",
         ]
 
-        last_err = None
-        for m, vars_ in mutations:
+        def _post_gql(mutation: str, variables: dict):
+            self.ensure_token()
+            h = {"Authorization": f"Bearer {self.token}"}
+            resp = requests.post(
+                self.gql_url,
+                json={"query": mutation, "variables": variables},
+                timeout=35,
+                verify=self.verify,
+                headers=h,
+            )
+            text = resp.text
             try:
-                self.gql(m, vars_)
+                data = resp.json()
+            except Exception:
+                data = None
+
+            if not resp.ok:
+                lower = (text or "").lower()
+                if any(k in lower for k in ("already", "exist", "duplicate", "unique")):
+                    raise AlreadyExists(text[:300])
+                resp.raise_for_status()
+
+            # GraphQL errors внутри 200
+            if isinstance(data, dict) and "errors" in data:
+                joined = " | ".join(str(e.get("message", "")) for e in data["errors"])
+                lower = joined.lower()
+                if any(k in lower for k in ("already", "exist", "duplicate", "unique")):
+                    raise AlreadyExists(joined[:300])
+                raise RuntimeError(joined or "GraphQL error")
+
+            return data
+
+        mutation = """
+        mutation($did:String!, $desc:String!, $dest:String!) {
+            addInboundRoute(input:{
+                extension: $did,
+                description: $desc,
+                destination: $dest
+            }) {
+                status
+                message
+                inboundRoute { id }
+            }
+        }"""
+
+        last_err = None
+        for dest in candidates:
+            try:
+                _post_gql(mutation, {"did": did, "desc": description, "dest": dest})
                 return
+            except AlreadyExists:
+                raise
             except Exception as e:
                 last_err = e
                 continue
 
-        # Делаем сообщение более понятным, если у инстанса нет самой мутации
         msg = str(last_err)
         if "Cannot query field" in msg and "addInboundRoute" in msg:
             raise RuntimeError(
                 "На этой версии FreePBX отсутствует мутация addInboundRoute. "
-                "Обнови модули framework/core/api до последних версий (edge) и повтори попытку."
+                "Обнови модули framework/core/api до последних версий."
             )
         raise RuntimeError(f"create_inbound_route failed: {last_err}")
+
 
 # ===== Helpers =====
 def equip_start(eq: int) -> int:
@@ -591,7 +618,8 @@ async def connect_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
         pairs = fb.fetch_all_extensions()
         c.user_data["__last_pairs"] = pairs
         pairs_page, page, pages = _slice_pairs(pairs, page=0)
-        text = _list_page_text(fb.base_url, pairs_page)
+        text = _list_page_text(clean_url(fb.base_url), pairs_page)
+
         kb = _list_nav_kb(page, pages)
 
         await u.message.reply_text(
@@ -612,7 +640,8 @@ async def list_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
         pairs = fb.fetch_all_extensions()
         c.user_data["__last_pairs"] = pairs
         pairs_page, page, pages = _slice_pairs(pairs, page=0)
-        await u.message.reply_text(_list_page_text(fb.base_url, pairs_page), reply_markup=_list_nav_kb(page, pages))
+        await u.message.reply_text(_list_page_text(clean_url(fb.base_url), pairs_page)
+, reply_markup=_list_nav_kb(page, pages))
     except Exception as e:
         await u.message.reply_text(f"Ошибка: <code>{escape(str(e))}</code>")
 
@@ -632,7 +661,7 @@ async def list_nav_cb(u: Update, c: ContextTypes.DEFAULT_TYPE):
         pairs_page, page, pages = _slice_pairs(pairs, page=page)
         fb = fb_from_session(u.effective_chat.id)
         await q.message.edit_text(
-            _list_page_text(fb.base_url, pairs_page),
+            _list_page_text(clean_url(fb.base_url), pairs_page),
             reply_markup=_list_nav_kb(page, pages)
         )
         await q.answer()
@@ -702,7 +731,7 @@ async def create_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
         pairs = fb.fetch_all_extensions()
         pairs_page, page, pages = _slice_pairs(pairs, page=0)
         c.user_data["__last_pairs"] = pairs
-        await u.message.reply_text(_list_page_text(fb.base_url, pairs_page), reply_markup=_list_nav_kb(page, pages))
+        await u.message.reply_text(_list_page_text(clean_url(fb.base_url), pairs_page), reply_markup=_list_nav_kb(page, pages))
     except Exception as e:
         await u.message.reply_text(f"Ошибка создания: <code>{escape(str(e))}</code>")
 
@@ -921,11 +950,13 @@ async def add_inbound_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
 
         notice = await u.message.reply_text(f"⏳ Добавляю Inbound Routes… (0/{total})")
 
-        ok, failed = [], []
+        ok, skipped_exists, failed = [], [], []
         for i, ext in enumerate(todo, 1):
             try:
                 fb.create_inbound_route(did=ext, description=f"sim{ext}", ext=ext)
                 ok.append(ext)
+            except AlreadyExists:
+                skipped_exists.append(ext)
             except Exception as e:
                 failed.append(f"{ext} ({str(e)[:80]})")
 
@@ -937,23 +968,30 @@ async def add_inbound_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
             await asyncio.sleep(0)
 
         parts = []
-        if ok:      parts.append("✅ Создано маршрутов: " + ", ".join(ok))
-        if missing: parts.append("↩️ Пропущено (нет таких EXT): " + ", ".join(missing))
-        if failed:  parts.append("❌ Ошибки: " + ", ".join(failed))
+        if ok:              parts.append("✅ Создано маршрутов: " + ", ".join(ok))
+        if skipped_exists:  parts.append("↩️ Уже существуют: " + ", ".join(skipped_exists))
+        if missing:         parts.append("↩️ Пропущено (нет таких EXT): " + ", ".join(missing))
+        if failed:          parts.append("❌ Ошибки: " + ", ".join(failed))
         await u.message.reply_text("\n".join(parts) if parts else "Нечего делать.")
 
+        # Apply Config, если действительно что-то создали
         if ok:
             try:
-                try: await notice.edit_text("🔄 Применяю конфиг (Apply Config)…")
-                except Exception: pass
+                try:
+                    await notice.edit_text("🔄 Применяю конфиг (Apply Config)…")
+                except Exception:
+                    pass
                 fb.apply_config()
-                try: await notice.edit_text("✅ Конфиг применён.")
-                except Exception: pass
+                try:
+                    await notice.edit_text("✅ Конфиг применён.")
+                except Exception:
+                    pass
             except Exception as e:
                 await u.message.reply_text(f"⚠️ Apply Config не удалось: <code>{escape(str(e))}</code>")
 
     except Exception as e:
         await u.message.reply_text(f"Ошибка /add_inbound: <code>{escape(str(e))}</code>")
+
     
 # ===== Lifecycle =====
 async def on_startup(app: Application):
