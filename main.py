@@ -1,16 +1,16 @@
 # src/main.py
 import os
-from telegram.ext import Application, Defaults, CommandHandler, CallbackQueryHandler
+from telegram.ext import Application, Defaults, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from telegram.constants import ParseMode
 from dotenv import load_dotenv
 from handlers.commands import list_routes_cmd
-
-
+from handlers.menu import menu_router, menu_text_router  
 
 from handlers.commands import (
     start_cmd, help_cmd, connect_cmd, list_cmd, create_cmd, del_cmd,
     del_eq_cmd, del_all_cmd, add_cmd, add_inbound_cmd, reconnect_cmd,
-    ping_cmd, whoami_cmd, logout_cmd, on_startup, del_inbound_cmd, gql_fields_cmd, gql_mutations_cmd
+    ping_cmd, whoami_cmd, logout_cmd, on_startup, del_inbound_cmd, gql_fields_cmd, gql_mutations_cmd,
+    menu_cmd  
 )
 from handlers.callbacks import list_nav_cb, del_all_cb, noop_cb
 
@@ -47,15 +47,14 @@ def build_app():
     app.add_handler(CommandHandler("list_routes", list_routes_cmd))
     app.add_handler(CommandHandler("gql_fields", gql_fields_cmd))
     app.add_handler(CommandHandler("gql_mutations", gql_mutations_cmd))
+    app.add_handler(CommandHandler("menu", menu_cmd))
 
-
-
-    
-
-
+    app.add_handler(CallbackQueryHandler(menu_router, pattern=r"^menu:"))
     app.add_handler(CallbackQueryHandler(list_nav_cb, pattern=r"^list:page:"))
     app.add_handler(CallbackQueryHandler(del_all_cb, pattern=r"^delall:"))
     app.add_handler(CallbackQueryHandler(noop_cb, pattern=r"^noop$"))
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), menu_text_router))
+
     return app
 
 if __name__ == "__main__":

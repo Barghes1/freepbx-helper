@@ -10,7 +10,7 @@ from .commands import (
     fb_from_session,
     _slice_pairs,
 )
-from ui.texts import _list_nav_kb, _list_page_text  # рендер страницы и нав.клавиатуры
+from ui.texts import _list_nav_kb, _list_page_text
 from utils.common import clean_url
 
 

@@ -429,9 +429,6 @@ class FreePBX:
         variables = {"input": {"id": route_id}}
         data = self.gql(q, variables)
         return data.get("removeInboundRoute") or {}
-
-
-
     
     def list_inbound_routes(self):
         """

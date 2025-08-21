@@ -34,9 +34,13 @@ HELP_TEXT = (
     "  • Проверка дублей по номеру и имени\n\n"
     
     "📥 <b>Inbound Routes</b>\n"
+    "  <code>/list_routes</code> — список всех маршрутов\n"
     "  <code>/add_inbound &lt;ext&gt;</code> или <code>/add_inbound &lt;start-end&gt;</code>\n"
-    "  • Создаёт маршрут DID→EXT, Description=simEXT\n\n"
+    "    • Создаёт маршрут DID→EXT, Description=simEXT\n"
+    "  <code>/del_inbound &lt;ext&gt;</code>\n"
+    "    • Удаляет маршрут по DID\n\n"
 )
+
 
 
 def _list_page_text(ip: str, pairs_page):
@@ -60,3 +64,13 @@ def _list_nav_kb(page: int, pages: int):
     if page < pages - 1:
         row.append(next_btn)
     return InlineKeyboardMarkup([row]) if pages > 1 else None
+
+MENU_WELCOME = (
+    "✅ Подключение успешно.\n"
+    "Выбирайте раздел ниже — больше не нужно писать команды вручную."
+)
+
+NOT_CONNECTED = (
+    "❗️Сначала подключитесь: "
+    "<code>/connect &lt;ip&gt; &lt;login&gt; &lt;password&gt;</code>"
+)
