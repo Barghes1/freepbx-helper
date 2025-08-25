@@ -1,4 +1,3 @@
-# src/main.py
 import os
 from telegram.ext import Application, Defaults, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from telegram.constants import ParseMode
@@ -8,11 +7,13 @@ from handlers.menu import menu_router, menu_text_router
 
 from handlers.commands import (
     start_cmd, help_cmd, connect_cmd, list_cmd, create_cmd, del_cmd,
-    del_eq_cmd, del_all_cmd, add_cmd, add_inbound_cmd, reconnect_cmd,
-    ping_cmd, whoami_cmd, logout_cmd, on_startup, del_inbound_cmd, gql_fields_cmd, gql_mutations_cmd,
-    menu_cmd  
+    del_eq_cmd, del_all_cmd, add_cmd, reconnect_cmd,
+    ping_cmd, whoami_cmd, logout_cmd, on_startup, gql_fields_cmd, gql_mutations_cmd,
+    menu_cmd, add_inbound_cmd, del_inbound_cmd,
+    goip_connect_cmd, goip_ping_cmd, goip_whoami_cmd, goip_start_watch_cmd, goip_in_on_cmd, goip_in_off_cmd, goip_debug_config_cmd
 )
 from handlers.callbacks import list_nav_cb, del_all_cb, noop_cb
+
 
 def _get_token() -> str:
     load_dotenv()
@@ -48,6 +49,16 @@ def build_app():
     app.add_handler(CommandHandler("gql_fields", gql_fields_cmd))
     app.add_handler(CommandHandler("gql_mutations", gql_mutations_cmd))
     app.add_handler(CommandHandler("menu", menu_cmd))
+    # ! NEW !
+    app.add_handler(CommandHandler("goip_connect", goip_connect_cmd))
+    app.add_handler(CommandHandler("goip_ping", goip_ping_cmd))
+    app.add_handler(CommandHandler("goip_whoami", goip_whoami_cmd))
+    app.add_handler(CommandHandler("goip_watch", goip_start_watch_cmd)) 
+    app.add_handler(CommandHandler("goip_in_on", goip_in_on_cmd))
+    app.add_handler(CommandHandler("goip_in_off", goip_in_off_cmd))
+    app.add_handler(CommandHandler("goip_debug_config", goip_debug_config_cmd))
+    
+
 
     app.add_handler(CallbackQueryHandler(menu_router, pattern=r"^menu:"))
     app.add_handler(CallbackQueryHandler(list_nav_cb, pattern=r"^list:page:"))

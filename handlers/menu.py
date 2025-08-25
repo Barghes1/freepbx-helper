@@ -13,7 +13,8 @@ from handlers.commands import (
     list_cmd, create_cmd, add_cmd, del_cmd, 
     reconnect_cmd, ping_cmd, whoami_cmd, logout_cmd, 
     gql_fields_cmd, gql_mutations_cmd,
-    list_routes_cmd, add_inbound_cmd, del_inbound_cmd)
+    list_routes_cmd, add_inbound_cmd, del_inbound_cmd
+)
 
 from utils.common import equip_start
 # ===== helpers =====
