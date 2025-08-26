@@ -1,4 +1,3 @@
-# src/ui/texts.py
 from telegram import InlineKeyboardMarkup, InlineKeyboardButton
 
 HELP_TEXT = (
@@ -40,8 +39,6 @@ HELP_TEXT = (
     "  <code>/del_inbound &lt;ext&gt;</code>\n"
     "    • Удаляет маршрут по DID\n\n"
 )
-
-
 
 def _list_page_text(ip: str, pairs_page):
     """Собрать текст для страницы списка EXT/паролей."""

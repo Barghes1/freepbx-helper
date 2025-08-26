@@ -1,6 +1,4 @@
-# src/handlers/commands.py
 import os
-import re
 import time
 import asyncio
 import secrets
@@ -26,18 +24,15 @@ from ui.texts import HELP_TEXT, _list_nav_kb, _list_page_text
 from utils.common import clean_url, equip_start, parse_targets, next_free
 
 from ui.keyboards import main_menu_kb
-# ! NEW !
 from core.goip import GoIP, GoipStatus
 from telegram.ext import Application
 from core.goip import GoIP 
 
 log = logging.getLogger(__name__)
 
-# ----- Session / settings -----
 SESS: Dict[int, dict] = {}
 PAGE_SIZE = 50
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
-# ! NEW !
 GOIP_SESS: Dict[int, dict] = {}
 GOIP_STATE_CACHE: Dict[int, str] = {}
 
@@ -76,13 +71,11 @@ def _slice_pairs(pairs, page: int, page_size: int = PAGE_SIZE):
 
 # ===== Commands =====
 async def start_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
-    # Сначала уберём старую reply-клавиатуру, если была
     await u.message.reply_text(
         "👋 Привет! Я помогу управлять FreePBX: подключение, список SIP, создание и удаление.\n"
         "Набери /help для инструкции.",
         reply_markup=ReplyKeyboardRemove()
     )
-    # И сразу покажем inline-главное меню
     await u.message.reply_text(
         "🏠 <b>Главное меню</b>",
         parse_mode=ParseMode.HTML,
@@ -125,7 +118,6 @@ async def connect_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
             "token_exp": fb.token_exp,
         }
 
-        # ставим флаг для меню
         c.user_data["__connected"] = True
 
         pairs = fb.fetch_all_extensions()
@@ -136,14 +128,12 @@ async def connect_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
 
         await u.message.reply_text(f"✅ Подключено к <code>{escape(fb.base_url)}</code>")
 
-        # Показать главное меню
         await u.message.reply_text(
             "🏠 <b>Главное меню</b>",
             parse_mode=ParseMode.HTML,
             reply_markup=main_menu_kb(),
         )
 
-        # (как и раньше) список экстеншенов
         await u.message.reply_text(text, reply_markup=kb)
 
     except Exception as e:
@@ -170,7 +160,7 @@ async def list_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
 
 
 async def create_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
-    target = u.effective_message  # универсальная "точка ответа" (и для message, и для callback)
+    target = u.effective_message
 
     if len(c.args) < 2:
         await target.reply_text(
@@ -504,13 +494,6 @@ async def list_routes_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
 
 
 async def add_inbound_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
-    """
-    /add_inbound 414
-    /add_inbound 401-418
-    Для каждого существующего EXT создаём inbound route:
-    DID=_sim{ext}, Description=sim{ext}, Destination -> Extension {ext}
-    После успешного создания — включаем входящие на соответствующем слоте GOIP.
-    """
     target = u.effective_message
 
     if not c.args:
@@ -531,7 +514,6 @@ async def add_inbound_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
     arg0 = " ".join(c.args)
     targets = parse_targets(arg0)
 
-    # локальный хелпер: EXT -> слот (1..32) по последним двум цифрам
     def ext_to_slot(ext: str):
         try:
             n = int(ext)
@@ -543,11 +525,9 @@ async def add_inbound_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
     try:
         await target.chat.send_action(ChatAction.TYPING)
 
-        # Индекс существующих EXT
         by_ext, _, _ = fb.fetch_ext_index()
         existing_exts = set(by_ext.keys())
 
-        # Уже существующие DID у маршрутов
         routes_now = fb.list_inbound_routes()
         existing_dids = {r.get("extension") for r in routes_now if r.get("extension")}
 
@@ -567,7 +547,6 @@ async def add_inbound_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
         ok, skipped_exists, failed = [], [], []
         for i, ext in enumerate(todo, 1):
             did_prefx = f"_sim{ext}"
-            # если уже есть старый маршрут (DID=ext) или новый (DID=_simext) — пропустим
             if ext in existing_dids or did_prefx in existing_dids:
                 skipped_exists.append(ext)
             else:
@@ -599,7 +578,6 @@ async def add_inbound_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
         await target.reply_text("\n".join(parts) if parts else "Нечего делать.")
 
         if ok:
-            # Apply Config
             try:
                 try:
                     await notice.edit_text("🔄 Применяю конфиг (Apply Config)…")
@@ -613,7 +591,6 @@ async def add_inbound_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
             except Exception as e:
                 await target.reply_text(f"⚠️ Apply Config не удалось: <code>{escape(str(e))}</code>")
 
-            # Включаем входящие на GOIP для реально созданных EXT
             try:
                 goip = goip_from_session(u.effective_chat.id)
                 slots = sorted({ext_to_slot(x) for x in ok if ext_to_slot(x)})
@@ -637,12 +614,6 @@ async def add_inbound_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
         await target.reply_text(f"Ошибка /add_inbound: <code>{escape(str(e))}</code>")
 
 async def del_inbound_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
-    """
-    /del_inbound <ext>
-    Удаляет inbound route по extension (DID).
-    Принимаем EXT без префикса, а ищем DID и как _simEXT, и как старый EXT.
-    После успешного удаления — выключаем входящие на соответствующем слоте GOIP.
-    """
     target = u.effective_message
 
     if not c.args:
@@ -654,7 +625,6 @@ async def del_inbound_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
     fb = fb_from_session(u.effective_chat.id)
     number = c.args[0]
 
-    # локальный хелпер: EXT -> слот (1..32) по последним двум цифрам
     def ext_to_slot(ext: str):
         try:
             n = int(ext)
@@ -668,9 +638,7 @@ async def del_inbound_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
 
         routes = fb.list_inbound_routes()
         did_new = f"_sim{number}"
-        # Сначала ищем новый формат
         route = next((r for r in routes if r.get("extension") == did_new), None)
-        # Затем — старый формат (на всякий случай)
         if not route:
             route = next((r for r in routes if r.get("extension") == number), None)
 
@@ -698,7 +666,6 @@ async def del_inbound_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
                     f"✅ Маршрут {shown} удалён.\n⚠️ Apply Config не удалось: {escape(str(e))}"
                 )
 
-            # Выключаем входящие на GOIP для соответствующего слота
             try:
                 goip = goip_from_session(u.effective_chat.id)
                 slot = ext_to_slot(number)
@@ -776,14 +743,7 @@ async def menu_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
         reply_markup=main_menu_kb(),
     )
     
-# ! NEW ! #
 def goip_from_session(chat_id: int) -> GoIP:
-    """
-    Унифицированный доступ к GoIP:
-    - основной стор: GOIP_SESS[chat_id] с кэшем объекта в ключе "_obj"
-    - бэкап-стор: SESS[chat_id]["goip"], если кто-то раньше так сохранял
-    """
-    # основной стор
     s = GOIP_SESS.get(chat_id)
     if s:
         obj = s.get("_obj")
@@ -798,7 +758,6 @@ def goip_from_session(chat_id: int) -> GoIP:
             s["_obj"] = obj  # кэшируем
             return obj
 
-    # бэкап-стор (старый формат)
     s2 = SESS.get(chat_id) or {}
     obj2 = s2.get("goip") or s2.get("GOIP")
     if isinstance(obj2, GoIP):
@@ -808,11 +767,6 @@ def goip_from_session(chat_id: int) -> GoIP:
 
 
 def _ext_to_slot(ext: str) -> Optional[int]:
-    """
-    Маппинг EXT -> слот GOIP.
-    Примеры:
-      401 -> 1, 418 -> 18, 313 -> 13, 1001 -> 1
-    """
     try:
         n = int(ext)
         s = n % 100
@@ -823,36 +777,55 @@ def _ext_to_slot(ext: str) -> Optional[int]:
 async def goip_connect_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
     """
     /goip_connect <url> <login> <password>
-    Пример:
+    [--radmin <url> <login> <password>]
+
+    Примеры:
     /goip_connect http://185.90.162.63:38017 admin admin3№
-    или (полный путь): /goip_connect http://...:38017/default/en_US/status.html admin pass
+    /goip_connect http://185.90.162.63:38017 admin admin3№ --radmin http://185.90.162.63:8086 BaraGeniy BaraVH&SiP!@#
     """
     target = u.effective_message
     if len(c.args) < 3:
         await target.reply_text(
-            "Формат:\n"
+            "Форматы:\n"
             "<code>/goip_connect &lt;url&gt; &lt;login&gt; &lt;password&gt;</code>\n"
-            "Примеры:\n"
-            "<code>/goip_connect http://185.90.162.63:38017 admin admin3№</code>\n"
-            "<code>/goip_connect http://185.90.162.63:38017/default/en_US/status.html admin admin3№</code>"
+            "<code>/goip_connect &lt;url&gt; &lt;login&gt; &lt;password&gt; --radmin &lt;url&gt; &lt;login&gt; &lt;password&gt;</code>"
         )
         return
 
-    raw_url, login, password = c.args[0], c.args[1], " ".join(c.args[2:])  # пароль может содержать спецсимволы/пробел
-    verify = not raw_url.startswith("http://")  # как и для FreePBX: http -> verify=False
+    # парсим аргументы
+    raw_args = c.args
+    if "--radmin" in raw_args:
+        idx = raw_args.index("--radmin")
+        goip_args = raw_args[:idx]
+        radmin_args = raw_args[idx+1:]
+    else:
+        goip_args, radmin_args = raw_args, None
+
+    if len(goip_args) < 3:
+        await target.reply_text("Недостаточно аргументов для GOIP.")
+        return
+
+    raw_url, login, password = goip_args[0], goip_args[1], " ".join(goip_args[2:])
+    verify = not raw_url.startswith("http://")
 
     try:
+        # Если есть блок --radmin → делаем warmup
+        if radmin_args and len(radmin_args) >= 3:
+            rurl, rlogin, rpass = radmin_args[0], radmin_args[1], " ".join(radmin_args[2:])
+            ok, info = GoIP.warmup_radmin(rurl, rlogin, rpass, verify=not rurl.startswith("http://"))
+            await target.reply_text(("✅ " if ok else "⚠️ ") + f"Radmin warmup: {escape(info)}")
+
         goip = GoIP(raw_url, login, password, verify=verify)
         state, msg, code = goip.check_status()
-        
+
+        # сохраняем сессию
         GOIP_SESS[u.effective_chat.id] = {
             "base_url": goip.base_url,
             "login": login,
             "password": password,
             "verify": verify,
-            "_obj": goip,   # ← добавь
+            "_obj": goip,
         }
-
 
         if state == GoipStatus.READY:
             await target.reply_text(f"✅ GOIP подключена: <code>{goip.status_url}</code>\n{msg}")
@@ -861,12 +834,19 @@ async def goip_connect_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
                 for j in c.job_queue.jobs() or []:
                     if j.name == job_name:
                         j.schedule_removal()
-                c.job_queue.run_repeating(_goip_periodic_check, interval=120, first=0, name=job_name, chat_id=u.effective_chat.id)
+                c.job_queue.run_repeating(
+                    _goip_periodic_check,
+                    interval=120,
+                    first=0,
+                    name=job_name,
+                    chat_id=u.effective_chat.id
+                )
 
         elif state == GoipStatus.UNAUTHORIZED:
             await target.reply_text(f"❌ Авторизация не удалась: {msg}")
         else:
             await target.reply_text(f"⚠️ Проверка выполнена, но есть проблемы: {msg}")
+
     except Exception as e:
         await target.reply_text(f"Ошибка подключения GOIP: <code>{escape(str(e))}</code>")
 
@@ -897,7 +877,7 @@ async def _goip_periodic_check(context: ContextTypes.DEFAULT_TYPE):
     chat_id = context.job.chat_id
     s = GOIP_SESS.get(chat_id)
     if not s:
-        return  # нет сессии — нечего проверять
+        return
 
     goip = GoIP(s["base_url"], s["login"], s["password"], verify=s["verify"])
     state, msg, code = goip.check_status()
@@ -912,16 +892,12 @@ async def _goip_periodic_check(context: ContextTypes.DEFAULT_TYPE):
                 text=f"{prefix} GOIP статус изменился: {msg} (HTTP {code or '—'})\nURL: <code>{goip.status_url}</code>"
             )
         except Exception:
-            pass  # не критично
+            pass
 
 async def goip_start_watch_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
-    """
-    Явный запуск фонового мониторинга. Можно вызывать автоматически из /goip_connect.
-    """
     if u.effective_chat.id not in GOIP_SESS:
         await u.effective_message.reply_text("Сначала /goip_connect.")
         return
-    # Каждые 2 минуты, без перекрытий.
     job_name = f"goip_watch_{u.effective_chat.id}"
     for j in c.job_queue.jobs() or []:
         if j.name == job_name:
@@ -952,7 +928,6 @@ async def goip_debug_config_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
     goip = goip_from_session(u.effective_chat.id)
     ok, msg = goip.fetch_config_page()
     if ok:
-        # Показываем как код (без попытки парсить HTML)
         await u.effective_message.reply_text(
             "✅ Удалось получить config.html:\n\n<pre>" + 
             msg[:3500].replace("<", "&lt;").replace(">", "&gt;") + 
@@ -962,8 +937,6 @@ async def goip_debug_config_cmd(u: Update, c: ContextTypes.DEFAULT_TYPE):
     else:
         await u.effective_message.reply_text("❌ " + msg)
         
-# ! END OF NEW !
-
 async def on_startup(app):
     print("✅ Бот запущен и слушает обновления. Набери /help в Telegram для инструкции.")
     log.info("✅ Бот запущен и слушает обновления. Команда помощи: /help")
@@ -1006,7 +979,7 @@ async def on_startup(app):
         await app.bot.set_my_commands(commands, scope=BotCommandScopeAllChatAdministrators())
 
         try:
-            await app.bot.set_chat_menu_button()  # вернёт стандартную «голубую» кнопку
+            await app.bot.set_chat_menu_button()
         except Exception:
             pass
     except Exception as e:

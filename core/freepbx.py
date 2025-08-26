@@ -152,7 +152,7 @@ class FreePBX:
                 for e in exts:
                     ext = str(e["extensionId"])
                     name = pick_name(e)
-                    by_ext[ext] = {"name": name, "pw": ""}  # pw не трогаем здесь
+                    by_ext[ext] = {"name": name, "pw": ""}
                     if name:
                         name_set.add(name.lower())
                 return by_ext, name_set, bool(name_set)
@@ -387,11 +387,9 @@ class FreePBX:
         for q in queries:
             try:
                 data = self.gql(q)
-                # пытаемся вытащить первый встретившийся контейнер
                 for key in ("fetchAllInboundRoutes", "inboundRoutes", "fetchInboundRoutes"):
                     if key in data and data[key] and "inboundRoute" in data[key]:
                         arr = data[key]["inboundRoute"] or []
-                        # normalize
                         out = []
                         for r in arr:
                             out.append({
@@ -407,9 +405,6 @@ class FreePBX:
         raise RuntimeError(f"Не удалось получить список inbound routes: {last_err}")
 
     def find_inbound_route(self, did: str) -> Optional[dict]:
-        """
-        Возвращает словарь маршрута по DID (extension) или None.
-        """
         did = str(did).strip()
         routes = self._try_fetch_inbound_routes()
         for r in routes:

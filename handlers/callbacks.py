@@ -15,10 +15,6 @@ from utils.common import clean_url
 
 
 async def list_nav_cb(u: Update, c: ContextTypes.DEFAULT_TYPE):
-    """
-    Обработчик пагинации списка EXT.
-    callback_data: "list:page:<N>"
-    """
     q = u.callback_query
     data = q.data
     if not data.startswith("list:page:"):
@@ -28,7 +24,6 @@ async def list_nav_cb(u: Update, c: ContextTypes.DEFAULT_TYPE):
     try:
         page = int(data.split(":")[-1])
 
-        # Берём кешированный список, если есть
         pairs: List[Tuple[str, str]] = c.user_data.get("__last_pairs")
         fb = fb_from_session(u.effective_chat.id)
         if pairs is None:
@@ -46,10 +41,6 @@ async def list_nav_cb(u: Update, c: ContextTypes.DEFAULT_TYPE):
 
 
 async def del_all_cb(u: Update, c: ContextTypes.DEFAULT_TYPE):
-    """
-    Подтверждение полного удаления всех линий.
-    callback_data: "delall:yes" | "delall:no"
-    """
     if not await _ensure_connected(u):
         return
 
@@ -84,7 +75,6 @@ async def del_all_cb(u: Update, c: ContextTypes.DEFAULT_TYPE):
                 except Exception:
                     pass
 
-        # Apply Config при наличии удалений
         if total:
             try:
                 try:
@@ -110,7 +100,6 @@ async def del_all_cb(u: Update, c: ContextTypes.DEFAULT_TYPE):
 
 
 async def noop_cb(u: Update, c: ContextTypes.DEFAULT_TYPE):
-    """Пустой обработчик для 'noop'."""
     await u.callback_query.answer()
     
 

@@ -49,7 +49,6 @@ def build_app():
     app.add_handler(CommandHandler("gql_fields", gql_fields_cmd))
     app.add_handler(CommandHandler("gql_mutations", gql_mutations_cmd))
     app.add_handler(CommandHandler("menu", menu_cmd))
-    # ! NEW !
     app.add_handler(CommandHandler("goip_connect", goip_connect_cmd))
     app.add_handler(CommandHandler("goip_ping", goip_ping_cmd))
     app.add_handler(CommandHandler("goip_whoami", goip_whoami_cmd))

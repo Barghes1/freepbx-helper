@@ -20,10 +20,8 @@ Content-Length: 0
     data = msg.encode("ascii", "ignore")
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        # фиксируем исходный порт 5060 — реже режут на приёмной стороне
         sock.bind(("", 5060))
     except OSError:
-        # если порт 5060 занят — пусть выберется любой свободный
         pass
     sock.settimeout(timeout)
 

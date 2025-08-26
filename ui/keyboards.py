@@ -1,6 +1,6 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-MENU_PREFIX = "menu:"  # общий префикс для навигации
+MENU_PREFIX = "menu:"
 
 def main_menu_kb() -> InlineKeyboardMarkup:
     rows = [

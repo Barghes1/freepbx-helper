@@ -141,8 +141,6 @@ async def _in_add_pick_eq(q):
     ]
     await _safe_edit(q, txt, parse_mode=ParseMode.HTML, reply_markup=_mk_inline(kb))
 
-
-
 # ===== ЭКРАНЫ: Удаление =====
 
 async def _ext_delete_root(q):
@@ -173,12 +171,10 @@ async def _ext_delete_pick_eq(q):
             dict(text="4 → 401-499",  data=f"{MENU_PREFIX}ext.del.eq.4"),
         ],
         [dict(text="10 → 1001-1099", data=f"{MENU_PREFIX}ext.del.eq.10")],
-        [dict(text="✍️ Ввести номер базы", data=f"{MENU_PREFIX}ext.del.eq.custom")],  # ← НОВОЕ
+        [dict(text="✍️ Ввести номер базы", data=f"{MENU_PREFIX}ext.del.eq.custom")],
         [dict(text="🔙 Назад",        data=f"{MENU_PREFIX}ext")],
     ]
     await _safe_edit(q, txt, parse_mode=ParseMode.HTML, reply_markup=_mk_inline(kb))
-
-
 
 # ===== ТЕКСТОВЫЙ РОУТЕР (ввод пользователя) =====
 
@@ -194,7 +190,6 @@ async def menu_text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kind = st.get("kind")
     text = (update.message.text or "").strip()
 
-    # создать по базе — ввод количества
     if kind == "create_eq_qty":
         eq = int(st["eq"])
         try:
@@ -209,7 +204,6 @@ async def menu_text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("__await", None)
         return
 
-    # один номер
     if kind == "add_single":
         parts = text.split(maxsplit=1)
         try:
@@ -223,7 +217,6 @@ async def menu_text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("__await", None)
         return
 
-    # диапазон
     if kind == "add_range":
         parts = text.split(maxsplit=1)
         rng = parts[0]
@@ -242,27 +235,23 @@ async def menu_text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("__await", None)
         return
 
-    # удаление — ввод произвольных номеров/диапазонов
     if kind == "del_numbers":
-        context.args = [text]  # весь ввод пойдёт в del_cmd
+        context.args = [text]
         await del_cmd(update, context)
         context.user_data.pop("__await", None)
         return
     
-    # Inbound: добавление (EXT или диапазон)
     if kind == "in_add":
-        # принимаем "414" или "401-418"
         text = (update.message.text or "").strip()
         if not text:
             await update.message.reply_text("❗ Введите EXT или диапазон, например: 414 или 401-418")
             return
-        # просто прокидываем как аргументы в add_inbound_cmd
+
         context.args = [text]
         await add_inbound_cmd(update, context)
         context.user_data.pop("__await", None)
         return
 
-    # Inbound: удаление по DID (EXT)
     if kind == "in_del":
         did = (update.message.text or "").strip()
         try:
@@ -275,7 +264,6 @@ async def menu_text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data.pop("__await", None)
         return
     
-    # Создание EXT: пользователь вручную вводит номер базы
     if kind == "create_eq_pick":
         txt = (update.message.text or "").strip()
         try:
@@ -310,7 +298,6 @@ async def menu_text_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         txt = (update.message.text or "").strip()
         try:
             eq = int(txt)
-            # валидируем, что такая база поддерживается (equip_start бросит, если нет)
             from utils.common import equip_start
             _ = equip_start(eq)
         except Exception:
@@ -340,7 +327,7 @@ async def menu_router(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _safe_edit(q, NOT_CONNECTED, parse_mode=ParseMode.HTML, reply_markup=back_home_kb())
         return
 
-    data = q.data  # например: "menu:ext.create.eqqty.4.10"
+    data = q.data
     route = data[len(MENU_PREFIX):]
 
     # разделы
