@@ -1,17 +1,21 @@
-# core/goip.py
-import time
+import base64
 import logging
 import re
-import base64
-from typing import Tuple, Optional
-from urllib.parse import urlparse, urljoin
+import time
+from http.client import RemoteDisconnected
+from typing import Optional, Tuple
+from urllib.parse import urljoin, urlparse
 
 import requests
 from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
-from requests.exceptions import ReadTimeout, ConnectTimeout, ConnectionError as ReqConnectionError
-from http.client import RemoteDisconnected
+from requests.exceptions import (
+    ConnectTimeout,
+    ConnectionError as ReqConnectionError,
+    ReadTimeout,
+)
 from urllib3.exceptions import ProtocolError
+from urllib3.util.retry import Retry
+
 
 log = logging.getLogger(__name__)
 

@@ -2,13 +2,13 @@ from html import escape
 from typing import List, Tuple
 
 from telegram import Update
-from telegram.ext import ContextTypes
 from telegram.constants import ChatAction
+from telegram.ext import ContextTypes
 
 from .commands import (
     _ensure_connected,
-    fb_from_session,
     _slice_pairs,
+    fb_from_session,
 )
 from ui.texts import _list_nav_kb, _list_page_text
 from utils.common import clean_url

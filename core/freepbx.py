@@ -1,7 +1,8 @@
-import time
-import re
 import logging
-from typing import Dict, List, Tuple, Optional
+import re
+import time
+
+from typing import Dict, List, Optional, Tuple
 
 import requests
 
@@ -357,7 +358,7 @@ class FreePBX:
                 "Обнови модули framework/core/api до последних версий."
             )
         raise RuntimeError(f"create_inbound_route failed: {last_err}")
-    
+
     # ===== Inbound Routes: find =====
     def _try_fetch_inbound_routes(self) -> list:
         queries = [
@@ -424,7 +425,7 @@ class FreePBX:
         variables = {"input": {"id": route_id}}
         data = self.gql(q, variables)
         return data.get("removeInboundRoute") or {}
-    
+
     def list_inbound_routes(self):
         """
         Возвращает список inbound routes: id, extension, description
@@ -451,7 +452,7 @@ class FreePBX:
                 "description": str(r.get("description") or ""),
             })
         return out
-    
+
     def list_query_fields(self):
         q = """
         query {
@@ -464,7 +465,7 @@ class FreePBX:
         """
         data = self.gql(q)
         return [f["name"] for f in data["__schema"]["queryType"]["fields"]]
-    
+
     def list_mutations(self):
         q = """
         query {
@@ -477,11 +478,3 @@ class FreePBX:
         """
         data = self.gql(q)
         return [f["name"] for f in data["__schema"]["mutationType"]["fields"]]
-
-
-
-
-
-
-
-

@@ -10,10 +10,12 @@ from handlers.commands import (
     del_eq_cmd, del_all_cmd, add_cmd, reconnect_cmd,
     ping_cmd, whoami_cmd, logout_cmd, on_startup, gql_fields_cmd, gql_mutations_cmd,
     menu_cmd, add_inbound_cmd, del_inbound_cmd,
-    goip_connect_cmd, goip_ping_cmd, goip_whoami_cmd, goip_start_watch_cmd, goip_in_on_cmd, goip_in_off_cmd, goip_debug_config_cmd
+    goip_connect_cmd, goip_ping_cmd, goip_whoami_cmd, 
+    goip_start_watch_cmd, goip_in_on_cmd, goip_in_off_cmd, goip_debug_config_cmd,
+    goip_detect_ip_cmd, pjsip_endpoints_cmd, pjsip_show_cmd, radmin_restart_cmd, set_incoming_sip_cmd, set_secret_cmd, add_outbound_cmd
+
 )
 from handlers.callbacks import list_nav_cb, del_all_cb, noop_cb
-
 
 def _get_token() -> str:
     load_dotenv()
@@ -56,8 +58,13 @@ def build_app():
     app.add_handler(CommandHandler("goip_in_on", goip_in_on_cmd))
     app.add_handler(CommandHandler("goip_in_off", goip_in_off_cmd))
     app.add_handler(CommandHandler("goip_debug_config", goip_debug_config_cmd))
-    
-
+    app.add_handler(CommandHandler("goip_detect_ip", goip_detect_ip_cmd))
+    app.add_handler(CommandHandler("pjsip_endpoints", pjsip_endpoints_cmd))
+    app.add_handler(CommandHandler("pjsip_show", pjsip_show_cmd))
+    app.add_handler(CommandHandler("set_incoming_sip", set_incoming_sip_cmd))
+    app.add_handler(CommandHandler("set_secret", set_secret_cmd))
+    app.add_handler(CommandHandler("radmin_restart", radmin_restart_cmd))
+    app.add_handler(CommandHandler("add_outbound", add_outbound_cmd))
 
     app.add_handler(CallbackQueryHandler(menu_router, pattern=r"^menu:"))
     app.add_handler(CallbackQueryHandler(list_nav_cb, pattern=r"^list:page:"))

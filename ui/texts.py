@@ -68,6 +68,8 @@ MENU_WELCOME = (
 )
 
 NOT_CONNECTED = (
-    "❗️Сначала подключитесь: "
-    "<code>/connect &lt;ip&gt; &lt;login&gt; &lt;password&gt;</code>"
+    "❗️Сначала подключитесь командой:\n"
+    "<code>/connect &lt;host&gt; &lt;client_id&gt; &lt;client_secret&gt; [ssh_login] [ssh_password]</code>\n\n"
+    "Или выберите сохранённый профиль в разделе <b>🔗 Presets</b> ниже."
 )
+
