@@ -1,16 +1,8 @@
-# core/asterisk.py
 import re
 import paramiko
 from typing import Optional, Tuple, List, Dict
-# core/asterisk.py
 import io
-import os
-import time
-import stat
 import paramiko
-import contextlib
-from paramiko.sftp import SFTPError
-import shlex
 
 class SSHExecError(Exception):
     pass
